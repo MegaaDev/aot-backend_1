@@ -1,6 +1,6 @@
 pub mod util;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use crate::{
     api::socket::util::{ResultType, SocketRequest, SocketResponse},
@@ -15,12 +15,27 @@ pub struct Socket {
     pub game_id: i32,
     pub game_state: State, // Has buildings, mines too
     pub shortest_paths: HashMap<SourceDest, Coords>,
+    pub timer: Option<actix::clock::Sleep>,
+}
+
+pub fn start_timer(ctx: &mut <Socket as Actor>::Context) {
+    ctx.run_interval(Duration::from_secs(120), |act, _| {
+        act.stopped(ctx);
+    });
+}
+
+pub fn stop_timer(ctx: &mut <Socket as Actor>::Context) {
+    if let Some(timer) = ctx.get_mut().timer.take() {
+        ctx.cancel_future(timer);
+    }
 }
 
 impl Actor for Socket {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        start_timer(ctx);
+
         println!("Websocket started");
         ctx.text("Websocket started");
 
@@ -48,6 +63,7 @@ impl Actor for Socket {
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
+        stop_timer(ctx);
         println!("Websocket stopped");
         ctx.text("Websocket stopped");
     }
@@ -83,3 +99,4 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Socket {
         }
     }
 }
+
