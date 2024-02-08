@@ -1,6 +1,6 @@
 pub mod util;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, pin::Pin, time::Duration};
 
 use crate::{
     api::socket::util::{ResultType, SocketRequest, SocketResponse},
@@ -9,18 +9,23 @@ use crate::{
 };
 use actix::prelude::*;
 use actix_web_actors::ws;
+use futures::FutureExt;
 use serde_json;
+// use std::{task::{Poll}, thread};
 
 pub struct Socket {
     pub game_id: i32,
     pub game_state: State, // Has buildings, mines too
     pub shortest_paths: HashMap<SourceDest, Coords>,
+    // pub timer_handle: Option<Pin<Box<actix::clock::Sleep>>>,
 }
 
 impl Actor for Socket {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // self.timer_handle = Some(Box::pin(actix::clock::sleep(Duration::from_secs(120))));
+
         println!("Websocket started");
         ctx.text("Websocket started");
 
@@ -48,6 +53,18 @@ impl Actor for Socket {
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
+        // if let Some(handle) = self.timer_handle.take() {
+            // Convert back to a heap-allocated Sleep object
+            // let val = match handle.as_mut().poll_unpin(ctx) {
+            //     Poll::Pending => thread::park(),
+            //     Poll::Ready(res) => return res,
+            // };
+            // match handle.as_mut().poll_unpin(cx) {
+            //     Poll::Pending => thread::park(),
+            //     Poll::Ready(res) => return res,
+            // }
+            // let _ = Box::pin(handle.);
+        // }
         println!("Websocket stopped");
         ctx.text("Websocket stopped");
     }
@@ -83,3 +100,4 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Socket {
         }
     }
 }
+

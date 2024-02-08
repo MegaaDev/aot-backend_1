@@ -1,11 +1,13 @@
 use self::util::{AttackResponse, NewAttack};
 use super::auth::session::AuthUser;
-use super::defense::util::DefenseResponse;
+use super::defense::util::{AttackBaseResponse, DefenseResponse, MineTypeResponseWithoutBlockId};
+use super::user::util::fetch_user;
 use super::{error, PgPool, RedisPool};
 use crate::api;
 use crate::api::socket::Socket;
 use crate::api::util::HistoryboardQuery;
-use crate::models::{AttackerType, LevelsFixture};
+use crate::constants::MAX_BOMBS_PER_ATTACK;
+use crate::models::{AttackerType, LevelsFixture, User};
 use crate::simulation::blocks::{Coords, SourceDest};
 use crate::validator::state::State;
 use crate::validator::util::{BuildingDetails, DefenderDetails, MineDetails};
@@ -52,6 +54,7 @@ async fn init_attack(
     if let Ok(Some(_)) = util::get_game_id_from_redis(attacker_id, redis_conn) {
         return Err(ErrorBadRequest("Only one attack is allowed at a time"));
     }
+
 
     //Generate random opponent id
     let random_opponent_id = web::block(move || {
@@ -118,12 +121,38 @@ async fn init_attack(
     .await?
     .map_err(|err| error::handle_error(err.into()))?;
 
+    let mut conn = pool.get().map_err(|err| error::handle_error(err.into()))?;
+
+    let user_details = web::block(move || {
+        Ok(fetch_user(&mut conn, opponent_id)?)
+            as anyhow::Result<Option<User>>
+    })
+    .await?
+    .map_err(|err| error::handle_error(err.into()))?;
+// 
     //Generate attack token to validate the /attack/start
     let attack_token = util::encode_attack_token(attacker_id, opponent_id).unwrap();
     let response: AttackResponse = AttackResponse {
-        base: opponent_base,
+        user: user_details,
+        max_bombs: MAX_BOMBS_PER_ATTACK,
+        base: AttackBaseResponse {
+            map_spaces: opponent_base.map_spaces,
+            defender_types: opponent_base.defender_types,
+            blocks: opponent_base.blocks,
+            mine_types: 
+                opponent_base.mine_types.iter().map(|mine_type| MineTypeResponseWithoutBlockId{
+                    id: mine_type.id,
+                    name: mine_type.name.clone(),
+                    damage: mine_type.damage,
+                    cost: mine_type.cost,
+                    level: mine_type.level,
+                    radius: mine_type.radius,
+                }).collect(),
+        },
         shortest_paths,
         attack_token,
+        attacker_types: opponent_base.attacker_types,
+        bomb_types: opponent_base.bomb_types,
     };
 
     Ok(Json(response))
@@ -135,10 +164,11 @@ async fn socket_handler(
     req: HttpRequest,
     stream: web::Payload,
 ) -> Result<HttpResponse, Error> {
-    let user_token = req.query_string().split('&').collect::<Vec<&str>>()[0]
+    let query_params = req.query_string().split('&').collect::<Vec<&str>>();
+    let user_token = query_params[0]
         .split('=')
         .collect::<Vec<&str>>()[1];
-    let attack_token = req.query_string().split('&').collect::<Vec<&str>>()[1]
+    let attack_token = query_params[1]
         .split('=')
         .collect::<Vec<&str>>()[1];
 
