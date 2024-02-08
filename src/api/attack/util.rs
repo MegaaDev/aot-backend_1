@@ -1,5 +1,5 @@
-use crate::api::auth::TokenClaims;
-use crate::api::defense::util::{fetch_map_layout, get_map_details_for_attack, DefenseResponse};
+use crate::api::auth::{LoginResponse, TokenClaims};
+use crate::api::defense::util::{fetch_map_layout, get_map_details_for_attack, AttackBaseResponse, DefenseResponse, MineTypeResponseWithoutBlockId};
 use crate::api::error::AuthError;
 use crate::api::game::util::UserDetail;
 use crate::api::user::util::fetch_user;
@@ -10,22 +10,7 @@ use crate::api::{self, RedisConn};
 use crate::constants::*;
 use crate::error::DieselError;
 use crate::models::{
-    Artifact,
-    AttackerType,
-    BlockCategory,
-    BlockType,
-    BuildingType,
-    DefenderType,
-    Game,
-    LevelsFixture,
-    MapLayout,
-    MapSpaces,
-    MineType,
-    NewAttackerPath,
-    NewGame,
-    // NewSimulationLog,
-    ShortestPath,
-    User,
+    Artifact, AttackType, AttackerType, BlockCategory, BlockType, BuildingType, DefenderType, EmpType, Game, LevelsFixture, MapLayout, MapSpaces, MineType, NewAttackerPath, NewGame, ShortestPath, User
 };
 use crate::schema::user;
 use crate::simulation::blocks::{Coords, SourceDest};
@@ -680,12 +665,12 @@ pub fn get_attacker_types(conn: &mut PgConnection) -> Result<HashMap<i32, Attack
                 attacker.id,
                 AttackerType {
                     id: attacker.id,
-                    name: attacker.name.clone(),
                     max_health: attacker.max_health,
                     speed: attacker.speed,
                     amt_of_emps: attacker.amt_of_emps,
                     level: attacker.level,
                     cost: attacker.cost,
+                    name: attacker.name.clone(),
                 },
             )
         })
@@ -694,7 +679,11 @@ pub fn get_attacker_types(conn: &mut PgConnection) -> Result<HashMap<i32, Attack
 
 #[derive(Serialize)]
 pub struct AttackResponse {
-    pub base: DefenseResponse,
+    pub user: Option<User>,
+    pub base: AttackBaseResponse,
+    pub max_bombs: i32,
+    pub attacker_types: Vec<AttackerType>,
+    pub bomb_types: Vec<EmpType>,
     pub shortest_paths: HashMap<SourceDest, Coords>,
     pub attack_token: String,
 }

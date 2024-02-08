@@ -34,11 +34,24 @@ pub struct Artifact {
 }
 
 #[derive(Serialize)]
+pub struct MineTypeResponseWithoutBlockId {
+    pub id: i32,
+    pub radius: i32,
+    pub damage: i32,
+    pub level: i32,
+    pub cost: i32,
+    pub name: String,
+}
+
+#[derive(Serialize)]
 pub struct MineTypeResponse {
     pub id: i32,
     pub radius: i32,
     pub damage: i32,
     pub block_id: i32,
+    pub level: i32,
+    pub cost: i32,
+    pub name: String,
 }
 
 #[derive(Serialize)]
@@ -76,12 +89,20 @@ pub struct DefenseBaseResponse {
 }
 
 #[derive(Serialize)]
+pub struct AttackBaseResponse {
+    pub map_spaces: Vec<MapSpaces>,
+    pub blocks: Vec<BuildingTypeResponse>,
+    pub defender_types: Vec<DefenderTypeResponse>,
+    pub mine_types: Vec<MineTypeResponseWithoutBlockId>,
+}
+
+#[derive(Serialize)]
 pub struct DefenseResponse {
     pub map_spaces: Vec<MapSpaces>,
     pub blocks: Vec<BuildingTypeResponse>,
     pub levels_fixture: LevelsFixture,
     pub level_constraints: Vec<LevelConstraints>,
-    pub attack_type: Vec<AttackType>,
+    pub bomb_types: Vec<EmpType>,
     pub defender_types: Vec<DefenderTypeResponse>,
     pub mine_types: Vec<MineTypeResponse>,
     pub attacker_types: Vec<AttackerType>,
@@ -244,7 +265,7 @@ pub fn get_map_details_for_attack(
     conn: &mut PgConnection,
     map: MapLayout,
 ) -> Result<DefenseResponse> {
-    use crate::schema::{attack_type, block_type, level_constraints, levels_fixture, map_spaces};
+    use crate::schema::{emp_type, block_type, level_constraints, levels_fixture, map_spaces};
 
     let map_spaces = map_spaces::table
         .inner_join(block_type::table)
@@ -283,10 +304,11 @@ pub fn get_map_details_for_attack(
             function: function!(),
             error: err,
         })?;
-    let attack_type = attack_type::table
-        .load::<AttackType>(conn)
+        
+    let bomb_types = emp_type::table
+        .load::<EmpType>(conn)
         .map_err(|err| DieselError {
-            table: "attack_type",
+            table: "emp_type",
             function: function!(),
             error: err,
         })?;
@@ -300,7 +322,7 @@ pub fn get_map_details_for_attack(
         blocks,
         levels_fixture,
         level_constraints,
-        attack_type,
+        bomb_types,
         mine_types,
         defender_types,
         attacker_types,
@@ -517,6 +539,9 @@ pub fn fetch_mine_types(conn: &mut PgConnection) -> Result<Vec<MineTypeResponse>
                 radius: mine_type.radius,
                 damage: mine_type.damage,
                 block_id: block_type.id,
+                cost: mine_type.cost,
+                level: mine_type.level,
+                name: "random name".to_string(), // TODO: "name" is not in the schema, so it's not in the struct "MineTypeResponse
             })
         })
         .collect();
