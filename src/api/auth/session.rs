@@ -3,12 +3,13 @@ use std::{
     future::{ready, Ready},
 };
 
+use crate::api::{error::AuthError, RedisPool};
 use actix_session::SessionExt;
 use actix_web::{dev::Payload, web::Data, FromRequest, HttpRequest};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use anyhow::Result;
+use base64::decode as decode_config;
+use jsonwebtoken::{decode, Algorithm, DecodingKey, TokenData, Validation};
 use redis::Commands;
-
-use crate::api::{error::AuthError, RedisPool};
 
 use super::TokenClaims;
 
@@ -20,6 +21,7 @@ impl FromRequest for AuthUser {
 
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
         let session = req.get_session();
+
         let redis_pool: Data<RedisPool> = req.app_data::<Data<RedisPool>>().unwrap().clone();
         let mut redis_conn = match redis_pool.get() {
             Ok(conn) => conn,
@@ -37,8 +39,19 @@ impl FromRequest for AuthUser {
         if auth_token.is_empty() {
             return ready(Err(Self::Error::Session));
         }
+        let splitted_token = auth_token.split('.').collect::<Vec<&str>>();
+
+        if splitted_token.len() != 3 {
+            return ready(Err(Self::Error::Session));
+        }
+
+        let is_logout = req.path() == "/user/logout";
+
+        let middle_part_of_jwt = splitted_token[1];
 
         let secret: String = env::var("COOKIE_KEY").unwrap_or("".to_string());
+
+        let mut token_err = false;
 
         let token = match decode::<TokenClaims>(
             &auth_token,
@@ -46,8 +59,36 @@ impl FromRequest for AuthUser {
             &Validation::new(Algorithm::HS256),
         ) {
             Ok(token) => token,
-            Err(_) => return ready(Err(Self::Error::Session)),
+            Err(e) => {
+                token_err = true;
+                TokenData {
+                    claims: TokenClaims {
+                        id: -1,
+                        device: e.to_string(),
+                        iat: 0,
+                        exp: 0,
+                    },
+                    header: Default::default(),
+                }
+            }
         };
+
+        if token_err && is_logout {
+            let decoded = decode_config(middle_part_of_jwt).unwrap_or([0; 0].to_vec());
+            // Convert the decoded bytes into a UTF-8 string
+            let payload = String::from_utf8(decoded).unwrap_or("".to_string());
+
+            let payload = serde_json::from_str::<TokenClaims>(&payload)
+                .map_err(|_| Self::Error::Session)
+                .unwrap_or(TokenClaims {
+                    id: -1,
+                    device: "".to_string(),
+                    iat: 0,
+                    exp: 0,
+                });
+            let user_id = payload.id;
+            return ready(Ok(AuthUser(user_id)));
+        }
 
         let user_id = token.claims.id;
         let device = token.claims.device;
